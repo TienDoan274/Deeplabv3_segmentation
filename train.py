@@ -37,7 +37,9 @@ class VOCdataset(VOCSegmentation):
     
     def __getitem__(self, index: int):
         image,target = super().__getitem__(index)
+ 
         target = np.array(target)
+
         target[target==255] = 0
         return image,target
 def main(args):
@@ -47,13 +49,13 @@ def main(args):
     transform = Compose([
         ToTensor(),
         Resize((args.image_size,args.image_size)),
-        Normalize(mean=[0.485,0.456,0.406],
-                  std=[0.229,0.224,0.225])
+        # Normalize(mean=[0.485,0.456,0.406],
+        #           std=[0.229,0.224,0.225])
     ])
     target_transform = Compose([
         Resize((args.image_size,args.image_size)),
-        Normalize(mean=[0.485,0.456,0.406],
-            std=[0.229,0.224,0.225])
+        # Normalize(mean=[0.485,0.456,0.406],
+        #     std=[0.229,0.224,0.225])
     ])
     if os.path.isdir(args.tensorboard_path):
         shutil.rmtree(args.tensorboard_path)
@@ -76,11 +78,12 @@ def main(args):
     )
     model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet50', pretrained=True).to(device)
     
-    model.backbone.requires_grad_(False)
-    model.classifier.requires_grad_(False)
     for param in model.parameters():
-        print(param.requires_grad)
-    optimizer = SGD([param for param in model.parameters() if param.requires_grad],lr=args.learning_rate) 
+        param.requires_grad = False
+    # Unfreeze last layer
+    for param in model.aux_classifier.parameters():
+        param.requires_grad = True
+    optimizer = SGD(model.parameters(),lr=args.learning_rate) 
     criterion = nn.CrossEntropyLoss()
     if args.checkpoint_path and os.path.isfile(args.checkpoint_path):
         ckp = torch.load(args.checkpoint_path)
@@ -95,6 +98,7 @@ def main(args):
         model.train()
         progress_bar = tqdm(train_loader)
         for i,(images,targets) in enumerate(progress_bar):
+            
             images = images.to(device)
             output = model(images)
             masks = output['out']
@@ -104,6 +108,7 @@ def main(args):
             progress_bar.set_description('Epoch {}/{}.Loss {:.4f}'.format(epoch + 1,args.epochs+start_epoch,loss.item()))
             writer.add_scalar('Train/loss',loss,epoch*len(train_loader)+i)
             optimizer.zero_grad()
+            loss.requires_grad = True 
             loss.backward()
             optimizer.step()
         model.eval()
